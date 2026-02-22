@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
-import { MapPin, Star, MessageCircle, UserPlus, Heart } from 'lucide-react';
+import { MapPin, Star, MessageCircle, UserPlus, Briefcase } from 'lucide-react';
 
 export default function ArtistProfile() {
   const { id } = useParams();
@@ -70,8 +70,11 @@ export default function ArtistProfile() {
               {artist.bio && <p className="mt-4 text-surface-600 dark:text-surface-400">{artist.bio}</p>}
               <p className="mt-2 text-sm text-surface-500 dark:text-surface-400">Styles: {artist.artStyles?.join(', ') || '—'}</p>
               {isAuthenticated && user?.role === 'user' && (
-                <div className="flex gap-3 mt-4">
-                  <button onClick={openChat} className="btn-primary flex items-center gap-2">
+                <div className="flex flex-wrap gap-3 mt-4">
+                  <Link to={`/?request=1&artist=${id}`} className="btn-primary flex items-center gap-2">
+                    <Briefcase className="h-4 w-4" /> Hire artist
+                  </Link>
+                  <button onClick={openChat} className="btn-secondary flex items-center gap-2">
                     <MessageCircle className="h-4 w-4" /> Message
                   </button>
                   <button onClick={follow} className="btn-secondary flex items-center gap-2">

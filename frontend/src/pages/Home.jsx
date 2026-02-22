@@ -1,6 +1,4 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import api from '../api/axios';
+import { useSearchParams } from 'react-router-dom';
 import Hero from '../components/home/Hero';
 import LiveProjectsSection from '../components/home/LiveProjectsSection';
 import TrendingStyles from '../components/home/TrendingStyles';
@@ -13,6 +11,9 @@ import CustomRequestSection from '../components/home/CustomRequestSection';
 import SupportArtisans from '../components/home/SupportArtisans';
 
 export default function Home() {
+  const [searchParams] = useSearchParams();
+  const openRequest = searchParams.get('request') === '1';
+  const artistId = searchParams.get('artist') || '';
   return (
     <div>
       <Hero />
@@ -23,7 +24,7 @@ export default function Home() {
       <WhyCulturalArt />
       <RecentlyAddedArtists />
       <PopularInCity />
-      <CustomRequestSection />
+      <CustomRequestSection openRequest={openRequest} preselectedArtistId={artistId} />
       <SupportArtisans />
     </div>
   );

@@ -2,8 +2,11 @@ const Message = require('../models/Message');
 const User = require('../models/User');
 const Artist = require('../models/Artist');
 const Notification = require('../models/Notification');
+const Conversation = require('../models/Conversation');
+const { sanitizeMessage } = require('../utils/sanitizeMessage');
 
 const getConversationId = (a, b) => [a, b].sort().join('_');
+const BUSINESS_WARNING = 'Sharing contact details or negotiating price outside the platform is not allowed. Your message has been hidden to protect our community.';
 
 exports.getConversations = async (req, res) => {
   try {
@@ -65,23 +68,29 @@ exports.getMessages = async (req, res) => {
 exports.sendMessage = async (req, res) => {
   try {
     const { receiverId, content, orderRef } = req.body;
+    const { sanitized, wasSanitized } = sanitizeMessage(content);
     const convId = getConversationId(req.user.id, receiverId);
     const message = await Message.create({
       conversationId: convId,
       sender: req.user.id,
       receiver: receiverId,
       orderRef: orderRef || undefined,
-      content
+      content: sanitized
     });
     await Notification.create({
       user: receiverId,
       type: 'new_message',
       title: 'New message',
-      body: content.slice(0, 50) + (content.length > 50 ? '...' : ''),
+      body: sanitized.slice(0, 50) + (sanitized.length > 50 ? '...' : ''),
       link: `/messages/${req.user.id}`
     });
     const populated = await Message.findById(message._id).populate('sender', 'name avatar');
-    res.status(201).json({ success: true, message: populated });
+    res.status(201).json({
+      success: true,
+      message: populated,
+      wasSanitized: wasSanitized || undefined,
+      warning: wasSanitized ? BUSINESS_WARNING : undefined
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -96,6 +105,32 @@ exports.markRead = async (req, res) => {
       { read: true, readAt: new Date() }
     );
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.getConversationStatus = async (req, res) => {
+  try {
+    const { otherUserId } = req.params;
+    const convId = getConversationId(req.user.id, otherUserId);
+    const conv = await Conversation.findOne({ conversationId: convId }).lean();
+    res.json({ success: true, isFinalized: !!conv?.finalizedAt, finalizedAt: conv?.finalizedAt });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.finalizeChat = async (req, res) => {
+  try {
+    const { otherUserId } = req.params;
+    const convId = getConversationId(req.user.id, otherUserId);
+    await Conversation.findOneAndUpdate(
+      { conversationId: convId },
+      { conversationId: convId, finalizedBy: req.user.id, finalizedAt: new Date() },
+      { upsert: true, new: true }
+    );
+    res.json({ success: true, message: 'Chat finalized successfully.' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

@@ -9,6 +9,7 @@ const connectDB = require('./config/db');
 const jwt = require('jsonwebtoken');
 const User = require('./models/User');
 const Message = require('./models/Message');
+const { sanitizeMessage } = require('./utils/sanitizeMessage');
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -68,17 +69,19 @@ io.on('connection', (socket) => {
   socket.on('send_message', async (data) => {
     try {
       const { receiverId, content, orderRef } = data;
+      const { sanitized, wasSanitized } = sanitizeMessage(content);
       const convId = [socket.user._id.toString(), receiverId].sort().join('_');
       const msg = await Message.create({
         conversationId: convId,
         sender: socket.user._id,
         receiver: receiverId,
         orderRef: orderRef || undefined,
-        content
+        content: sanitized
       });
       const populated = await Message.findById(msg._id).populate('sender', 'name avatar');
-      io.to(`user_${receiverId}`).emit('new_message', populated);
-      socket.emit('new_message', populated);
+      const payload = { message: populated, wasSanitized: wasSanitized || undefined, warning: wasSanitized ? 'Sharing contact details or negotiating price outside the platform is not allowed. Your message has been hidden.' : undefined };
+      io.to(`user_${receiverId}`).emit('new_message', payload);
+      socket.emit('new_message', payload);
     } catch (err) {
       socket.emit('error', { message: err.message });
     }

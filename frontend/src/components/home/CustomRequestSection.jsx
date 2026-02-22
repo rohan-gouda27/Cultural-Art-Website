@@ -6,7 +6,7 @@ import { X, Upload } from 'lucide-react';
 
 const ART_TYPES = ['Portrait', 'Mandala', 'Wall painting', 'Digital art', 'Sketch', 'Traditional', 'Other'];
 
-export default function CustomRequestSection() {
+export default function CustomRequestSection({ openRequest, preselectedArtistId }) {
   const { user, isAuthenticated } = useAuth();
   const [open, setOpen] = useState(false);
   const [artists, setArtists] = useState([]);
@@ -15,7 +15,7 @@ export default function CustomRequestSection() {
     budget: '',
     deadline: '',
     description: '',
-    artistId: '',
+    artistId: preselectedArtistId || '',
   });
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -23,6 +23,13 @@ export default function CustomRequestSection() {
   useEffect(() => {
     api.get('/artists?limit=50').then(({ data }) => setArtists(data.artists || [])).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (openRequest && preselectedArtistId) {
+      setOpen(true);
+      setForm((f) => ({ ...f, artistId: preselectedArtistId }));
+    }
+  }, [openRequest, preselectedArtistId]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

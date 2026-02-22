@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { io } from 'socket.io-client';
-import { Send, MessageCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { Send, MessageCircle, CheckCircle, UserPlus } from 'lucide-react';
 
 export default function Messages() {
   const [searchParams] = useSearchParams();
@@ -14,18 +15,26 @@ export default function Messages() {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [socket, setSocket] = useState(null);
+  const [selectedUserInfo, setSelectedUserInfo] = useState(null);
+  const [isFinalized, setIsFinalized] = useState(false);
+  const [selectedArtistId, setSelectedArtistId] = useState(null);
   const bottomRef = useRef(null);
 
   useEffect(() => {
-    api.get('/messages/conversations').then(({ data }) => setConversations(data.conversations || [])).catch(() => {});
+    loadConversations();
   }, []);
 
   useEffect(() => {
-    if (!user?.token) return;
+    if (!user) return;
     const token = localStorage.getItem('token');
+    if (!token) return;
     const socketUrl = window.location.port === '3000' ? 'http://localhost:5000' : window.location.origin;
     const s = io(socketUrl, { auth: { token } });
-    s.on('new_message', (msg) => setMessages((m) => [...m, msg]));
+    s.on('new_message', (payload) => {
+      const msg = payload?.message || payload;
+      if (msg) setMessages((m) => [...m, msg]);
+      if (payload?.warning) toast.error(payload.warning, { duration: 5000 });
+    });
     setSocket(s);
     return () => s.disconnect();
   }, [user]);
@@ -33,8 +42,16 @@ export default function Messages() {
   useEffect(() => {
     if (selectedUserId) {
       api.get(`/messages/${selectedUserId}`).then(({ data }) => setMessages(data.messages || [])).catch(() => setMessages([]));
+      api.get(`/messages/${selectedUserId}/status`).then(({ data }) => setIsFinalized(!!data.isFinalized)).catch(() => setIsFinalized(false));
+      api.get(`/users/profile/${selectedUserId}`).then(({ data }) => {
+        setSelectedUserInfo({ ...data.user, displayName: data.artist?.displayName || data.user?.name });
+        setSelectedArtistId(data.artist?._id || null);
+      }).catch(() => { setSelectedUserInfo(null); setSelectedArtistId(null); });
     } else {
       setMessages([]);
+      setSelectedUserInfo(null);
+      setSelectedArtistId(null);
+      setIsFinalized(false);
     }
   }, [selectedUserId]);
 
@@ -44,17 +61,31 @@ export default function Messages() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
+  const loadConversations = () => {
+    api.get('/messages/conversations').then(({ data }) => setConversations(data.conversations || [])).catch(() => {});
+  };
+
   const sendMessage = () => {
     if (!newMessage.trim() || !selectedUserId) return;
-    if (socket) {
-      socket.emit('send_message', { receiverId: selectedUserId, content: newMessage.trim() });
-      setNewMessage('');
+    const content = newMessage.trim();
+    setNewMessage('');
+    if (socket?.connected) {
+      socket.emit('send_message', { receiverId: selectedUserId, content });
+      loadConversations();
     } else {
-      api.post('/messages', { receiverId: selectedUserId, content: newMessage.trim() }).then(({ data }) => {
+      api.post('/messages', { receiverId: selectedUserId, content }).then(({ data }) => {
         setMessages((m) => [...m, data.message]);
-        setNewMessage('');
-      }).catch(() => {});
+        if (data.warning) toast.error(data.warning, { duration: 5000 });
+        loadConversations();
+      }).catch(() => setNewMessage(content));
     }
+  };
+
+  const handleFinalizeChat = () => {
+    api.post(`/messages/${selectedUserId}/finalize`).then(() => {
+      setIsFinalized(true);
+      toast.success('Chat finalized. You can still view the conversation.');
+    }).catch(() => toast.error('Could not finalize chat'));
   };
 
   const otherUserFromConversation = (c) => c.otherUser;
@@ -91,10 +122,26 @@ export default function Messages() {
         <div className="flex-1 flex flex-col">
           {selectedUserId ? (
             <>
-              <div className="p-4 border-b border-surface-200 dark:border-surface-700">
+              <div className="p-4 border-b border-surface-200 dark:border-surface-700 flex flex-wrap items-center justify-between gap-2">
                 <p className="font-medium text-surface-900 dark:text-surface-100">
-                  {selectedConv?.otherUser?.displayName || selectedConv?.otherUser?.name || 'User'}
+                  {selectedConv?.otherUser?.displayName || selectedConv?.otherUser?.name || selectedUserInfo?.name || selectedUserInfo?.displayName || 'User'}
                 </p>
+                <div className="flex items-center gap-2">
+                  {selectedArtistId && (
+                    <Link to={`/?request=1&artist=${selectedArtistId}`} className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1.5">
+                      <UserPlus className="h-4 w-4" /> Hire artist
+                    </Link>
+                  )}
+                  {!isFinalized ? (
+                    <button type="button" onClick={handleFinalizeChat} className="btn-secondary text-sm py-1.5 px-3 flex items-center gap-1.5">
+                      <CheckCircle className="h-4 w-4" /> Finalize chat
+                    </button>
+                  ) : (
+                    <span className="text-sm text-surface-500 dark:text-surface-400 flex items-center gap-1.5">
+                      <CheckCircle className="h-4 w-4 text-green-500" /> Finalized
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {messages.map((m) => {
@@ -114,11 +161,12 @@ export default function Messages() {
                   type="text"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                  placeholder="Type a message..."
+                  onKeyDown={(e) => e.key === 'Enter' && !isFinalized && sendMessage()}
+                  placeholder={isFinalized ? 'This chat is finalized.' : 'Type a message...'}
                   className="input-field flex-1"
+                  disabled={isFinalized}
                 />
-                <button onClick={sendMessage} className="btn-primary p-2">
+                <button onClick={sendMessage} className="btn-primary p-2" disabled={isFinalized} title={isFinalized ? 'Chat finalized' : 'Send'}>
                   <Send className="h-5 w-5" />
                 </button>
               </div>
